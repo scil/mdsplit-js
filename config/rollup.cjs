@@ -7,7 +7,7 @@ var version = pkg.version;
 var banner = `/*!
  * ${pkg.name} ${version} (https://github.com/scil/mdsplit-js)
  * API https://github.com/scil/mdsplit-js/blob/master/doc/api.md
- * Copyright 2017-${new Date().getFullYear()} scil. All Rights Reserved
+ * Copyright 2023-${new Date().getFullYear()} scil. All Rights Reserved
  * Licensed under MIT (https://github.com/scil/mdsplit-js/blob/master/LICENSE)
  */
 `;
@@ -20,8 +20,6 @@ function getCompiler() {
         '@babel/preset-env',
         {
           targets: {
-            browsers:
-              'last 2 versions, > 1%, ie >= 11, Android >= 4.1, iOS >= 10.3',
             node: '14',
           },
           modules: false,

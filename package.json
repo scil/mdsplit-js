@@ -1,10 +1,13 @@
 {
-  "name": "mdsplit-js",
+  "name": "@scil/mdsplit-js",
   "version": "0.1.0",
   "description": "The best third party JS|TS library scaffold",
   "sideEffects": false,
   "main": "dist/index.js",
   "module": "dist/index.esm.js",
+  "bin": {
+    "mdsplit": "dist/bin/mdsplit"
+  },
   "exports": {
     "node": {
       "import": "./dist/index.mjs",
@@ -29,7 +32,8 @@
     "build:self": "rollup -c config/rollup.config.cjs",
     "build:esm": "rollup -c config/rollup.config.esm.cjs",
     "build:aio": "rollup -c config/rollup.config.aio.cjs",
-    "build": "npm run clean && npm run build:self && npm run build:esm && npm run build:aio",
+    "build:cli": "rollup -c config/rollup.config.cli.cjs",
+    "build": "npm run clean && npm run build:self && npm run build:esm && npm run build:aio && npm run build:cli",
     "coveralls": "nyc report --reporter=text-lcov | coveralls"
   },
   "author": "scil",
