@@ -198,7 +198,8 @@ export class PathBasedSplitter extends Splitter {
   }
 
   async processDirectory(inDirPath, outputDirectory) {
-    fs.readdirSync(inDirPath).forEach(async (file) => {
+    const files = fs.readdirSync(inDirPath);
+    for (const file of files) {
       const filePath = path.join(inDirPath, file);
       // only process md files
       if (fs.lstatSync(filePath).isFile() && path.extname(filePath) === '.md') {
@@ -213,9 +214,9 @@ export class PathBasedSplitter extends Splitter {
           path.relative(this.inPath, filePath),
         );
         fs.mkdirSync(newOutputDirectory, { recursive: true });
-        this.processDirectory(filePath, newOutputDirectory);
+        await this.processDirectory(filePath, newOutputDirectory);
       }
-    });
+    }
   }
 
   async processFile(filePath, outputPath) {
