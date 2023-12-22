@@ -5,22 +5,71 @@ import { MAX_HEADING_LEVEL, DIR_SUFFIX } from './const.mjs';
 
 const FENCES = ['```', '~~~'];
 
-class Chapter {
-  constructor(parentHeadings, heading, text) {
-    this.parentHeadings = parentHeadings;
+/**
+ * purpose: generate the value of attribute index for some chapters who has no direct parent.
+ * For example, in a markdown article,
+ * there are only headers of level 2, no level 1
+ *
+ * @class
+ * @property {number} childrenNumber
+ */
+class BaseChapter {
+  constructor() {
+    this.childrenNumber = 0;
+  }
+}
+
+/**
+ * @class
+ * @property {string|null} filename
+ * @property {number} index
+ * @property {Line} heading
+ * @property {Array.<BaseChapter>} parent
+ * @property {Array.<string>} text
+ */
+class Chapter extends BaseChapter {
+  constructor(parents, heading, text) {
+    super();
+    this.filename = null;
+    this.index = 0;
+    if (parents && parents.length > 0) {
+      const directParent = parents.at(-1);
+      this.index = directParent.childrenNumber++;
+    } else {
+      console.warn(
+        'no any parents for chapter ',
+        heading ? heading.headingTitle : text.slice(0, 3).join('; '),
+      );
+    }
+    this.parents = parents;
     this.heading = heading;
     this.text = text;
   }
 }
 
+/**
+ * @property {BufferEncoding} encoding
+ * @property {number} level
+ * @property {boolean} toc
+ * @property {boolean} force
+ * @property {boolean} verbose
+ * @property {Stats} stats
+ * @property {Function} customChapterFilename
+ */
 class Splitter {
-  constructor(encoding, level, toc, force, verbose) {
+  constructor(encoding, level, toc, force, verbose, customFilename) {
     this.encoding = encoding || 'utf8';
     this.level = level;
     this.toc = toc;
     this.force = force;
     this.verbose = verbose;
     this.stats = new Stats();
+    this.customChapterFilename =
+      typeof customFilename === 'function'
+        ? customFilename
+        : typeof customFilename === 'string'
+          ? Function.apply(Function, ['chapter', 'fallback', customFilename])
+          : null;
   }
 
   async process() {
@@ -29,6 +78,47 @@ class Splitter {
 
   printStats() {
     throw new Error('method not implemented');
+  }
+
+  /**
+   *
+   * @param {Chapter} chapter
+   * @param {string} outPath
+   * @returns {string}
+   */
+  getChapterDir(chapter, outPath) {
+    let chapterDir = outPath;
+    for (const parent of chapter.parents) {
+      /**
+       * @type {Chapter} parent
+       */
+      if (parent instanceof Chapter && parent.filename)
+        chapterDir = path.join(chapterDir, getValidFilename(parent.filename));
+    }
+    return chapterDir;
+  }
+
+  /**
+   *
+   * @param {Chapter} chapter
+   * @param {string} fallbackOutFileName
+   * @returns {string}
+   */
+  getChapterFilename(chapter, fallbackOutFileName) {
+    let name;
+    if (!this.customChapterFilename)
+      name =
+        chapter.heading === null
+          ? fallbackOutFileName
+          : getValidFilename(chapter.heading.headingTitle);
+    else {
+      name = getValidFilename(
+        this.customChapterFilename(chapter, fallbackOutFileName),
+      );
+    }
+
+    chapter.filename = name;
+    return name + '.md';
   }
 
   /**
@@ -48,22 +138,19 @@ class Splitter {
     const chapters = await splitByHeading(rl, this.level);
     for await (const chapter of chapters) {
       this.stats.chapters += 1;
-      let chapterDir = outPath;
-      for (const parent of chapter.parentHeadings) {
-        chapterDir = path.join(chapterDir, getValidFilename(parent));
-      }
+      let chapterDir = this.getChapterDir(chapter, outPath);
       if (
-        !fs.existsSync(this.outPath) ||
+        !fs.existsSync(outPath) ||
         !fs.existsSync(chapterDir) ||
         !fs.lstatSync(chapterDir).isDirectory()
       ) {
         fs.mkdirSync(chapterDir, { recursive: true });
       }
 
-      const chapterFilename =
-        chapter.heading === null
-          ? fallbackOutFileName
-          : getValidFilename(chapter.heading.headingTitle) + '.md';
+      const chapterFilename = this.getChapterFilename(
+        chapter,
+        fallbackOutFileName,
+      );
 
       const chapterPath = path.join(chapterDir, chapterFilename);
       if (this.verbose) {
@@ -72,7 +159,13 @@ class Splitter {
       if (!fs.existsSync(chapterPath)) {
         this.stats.newOutFiles += 1;
         if (this.toc) {
-          const indent = '  '.repeat(chapter.parentHeadings.length);
+          const num = chapter.parents.reduce((acc, current) => {
+            if (current instanceof Chapter) {
+              return acc + 1;
+            }
+            return acc;
+          }, 0);
+          const indent = '  '.repeat(num);
           const title =
             chapter.heading === null
               ? Splitter.removeMdSuffix(fallbackOutFileName)
@@ -84,17 +177,15 @@ class Splitter {
         }
       }
 
-      fs.appendFileSync(
-        chapterPath,
-        chapter.text.join('\n') + '\n',
-        this.encoding,
-      );
+      fs.appendFileSync(chapterPath, chapter.text.join('\n') + '\n', {
+        encoding: this.encoding,
+      });
     }
 
     if (this.toc) {
       this.stats.newOutFiles += 1;
       const tocPath = path.join(outPath, 'toc.md');
-      fs.writeFileSync(tocPath, toc, this.encoding);
+      fs.writeFileSync(tocPath, toc, { encoding: this.encoding });
       if (this.verbose) {
         console.log(`Write table of contents to ${tocPath}`);
       }
@@ -113,8 +204,16 @@ class Splitter {
  * Split content from stdin
  */
 export class StdinSplitter extends Splitter {
-  constructor({ encoding, level, toc, outPath, force, verbose }) {
-    super(encoding, level, toc, force, verbose);
+  constructor({
+    encoding,
+    level,
+    toc,
+    outPath,
+    force,
+    verbose,
+    customFilename,
+  }) {
+    super(encoding, level, toc, force, verbose, customFilename);
     this.outPath = outPath || DIR_SUFFIX;
     if (
       fs.existsSync(this.outPath) &&
@@ -145,11 +244,11 @@ export class StdinSplitter extends Splitter {
 
     // const fileContents = fs.readFileSync(filePath, this.encoding);
     // Call the processStream method with the file contents and other parameters
-    await this.processStream(rl, 'stdin.md', this.outPath);
+    await this.processStream(rl, 'stdin', this.outPath);
   }
 
   printStats() {
-    console.log('Splittig result (from stdin):');
+    console.log('Splitting result (from stdin):');
     console.log(`- ${this.stats.chapters} extracted chapter(s)`);
     console.log(
       `- ${this.stats.newOutFiles} new output file(s) (${this.outPath})`,
@@ -161,8 +260,11 @@ export class StdinSplitter extends Splitter {
  * Split a specific file or all .md files found in a directory (recursively)
  */
 export class PathBasedSplitter extends Splitter {
-  constructor(inPath, { encoding, level, toc, outPath, force, verbose }) {
-    super(encoding, level, toc, force, verbose);
+  constructor(
+    inPath,
+    { encoding, level, toc, outPath, force, verbose, customFilename },
+  ) {
+    super(encoding, level, toc, force, verbose, customFilename);
     this.inPath = inPath;
     if (!fs.existsSync(this.inPath)) {
       throw new MdSplitError(
@@ -246,13 +348,16 @@ export class PathBasedSplitter extends Splitter {
 }
 
 async function* splitByHeading(rl, maxLevel) {
-  let currParentHeadings = new Array(MAX_HEADING_LEVEL).fill(null);
+  let currParents = Array.from({ length: 6 }, () => new BaseChapter());
+  /**
+   * @type {Line}
+   */
   let currHeadingLine = null;
   let currLines = [];
   let withinFence = false;
 
-  for await (let nextLine of rl) {
-    nextLine = new Line(nextLine);
+  for await (const nextRlLine of rl) {
+    const nextLine = new Line(nextRlLine);
 
     if (nextLine.isFence()) {
       withinFence = !withinFence;
@@ -263,14 +368,15 @@ async function* splitByHeading(rl, maxLevel) {
 
     if (isChapterFinished) {
       if (currLines.length > 0) {
-        const parents = __getParents(currParentHeadings, currHeadingLine);
-        yield new Chapter(parents, currHeadingLine, currLines);
+        const parents = __getParents(currParents, currHeadingLine);
+        const chapter = new Chapter(parents, currHeadingLine, currLines);
+        yield chapter;
 
         if (currHeadingLine !== null) {
           const currLevel = currHeadingLine.headingLevel;
-          currParentHeadings[currLevel - 1] = currHeadingLine.headingTitle;
+          currParents[currLevel - 1] = chapter;
           for (let level = currLevel; level < MAX_HEADING_LEVEL; level++) {
-            currParentHeadings[level] = null;
+            currParents[level] = null;
           }
         }
       }
@@ -282,19 +388,25 @@ async function* splitByHeading(rl, maxLevel) {
     currLines.push(nextLine.fullLine);
   }
 
-  const parents = __getParents(currParentHeadings, currHeadingLine);
+  const parents = __getParents(currParents, currHeadingLine);
   //  yields the last chapter
   yield new Chapter(parents, currHeadingLine, currLines);
 }
 
-function __getParents(parentHeadings, headingLine) {
+/**
+ *
+ * @param {Array.<BaseChapter>} parents
+ * @param {Line} headingLine
+ * @returns {Array}
+ * @private
+ */
+function __getParents(parents, headingLine) {
   if (headingLine === null) {
     return [];
   }
 
   const maxLevel = headingLine.headingLevel;
-  const trunc = parentHeadings.slice(0, maxLevel - 1);
-  return trunc.filter((h) => h !== null);
+  return parents.slice(0, maxLevel - 1);
 }
 
 /**

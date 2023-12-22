@@ -8,3 +8,6 @@
 
 js port of python [markusstraub/mdsplit](https://github.com/markusstraub/mdsplit)
 
+## Extra Features
+
+[x] customize the file name for each chapter (each head represents a chapter). Index can be added to file name, `-cf "return `${chapter.index}-${( chapter.heading?  chapter.heading.headingTitle:  fallback )}`  "   -l 3 -t -o output_dir  "big.md" `

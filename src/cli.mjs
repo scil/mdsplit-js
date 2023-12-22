@@ -66,6 +66,11 @@ async function main() {
     action: 'store_true',
   });
 
+  parser.add_argument('-cf', '--custom-filename', {
+    type: String,
+    help: 'the body of function with arg chapter to customize filename',
+  });
+
   const args = parser.parse_args();
 
   try {
@@ -76,6 +81,7 @@ async function main() {
       outPath: args.output,
       force: args.force,
       verbose: args.verbose,
+      customFilename: args.custom_filename,
     };
 
     const splitter =
