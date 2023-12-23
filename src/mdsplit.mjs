@@ -55,6 +55,7 @@ class Chapter extends BaseChapter {
  * @property {boolean} verbose
  * @property {Stats} stats
  * @property {Function} customChapterFilename
+ * @property {string} tocContent
  */
 class Splitter {
   constructor(encoding, level, toc, force, verbose, customFilename) {
@@ -70,6 +71,7 @@ class Splitter {
         : typeof customFilename === 'string'
           ? Function.apply(Function, ['chapter', 'fallback', customFilename])
           : null;
+    this.tocContent = '# Table of Contents\n';
   }
 
   async process() {
@@ -132,10 +134,10 @@ class Splitter {
     if (this.verbose) {
       console.log(`Create output folder '${outPath}'`);
     }
-
-    let toc = '# Table of Contents\n';
     this.stats.inFiles += 1;
+
     const chapters = await splitByHeading(rl, this.level);
+
     for await (const chapter of chapters) {
       this.stats.chapters += 1;
       let chapterDir = this.getChapterDir(chapter, outPath);
@@ -158,23 +160,7 @@ class Splitter {
       }
       if (!fs.existsSync(chapterPath)) {
         this.stats.newOutFiles += 1;
-        if (this.toc) {
-          const num = chapter.parents.reduce((acc, current) => {
-            if (current instanceof Chapter) {
-              return acc + 1;
-            }
-            return acc;
-          }, 0);
-          const indent = '  '.repeat(num);
-          const title =
-            chapter.heading === null
-              ? Splitter.removeMdSuffix(fallbackOutFileName)
-              : chapter.heading.headingTitle;
-          toc += `\n${indent}- [${title}](<./${path.relative(
-            outPath,
-            chapterPath,
-          )}>)`;
-        }
+        this.appendToToc(chapter, outPath, chapterPath, fallbackOutFileName);
       }
 
       fs.appendFileSync(chapterPath, chapter.text.join('\n') + '\n', {
@@ -182,10 +168,34 @@ class Splitter {
       });
     }
 
+    this.writeToc(outPath);
+  }
+
+  appendToToc(chapter, outPath, chapterPath, fallbackOutFileName) {
+    if (this.toc) {
+      const num = chapter.parents.reduce((acc, current) => {
+        if (current instanceof Chapter) {
+          return acc + 1;
+        }
+        return acc;
+      }, 0);
+      const indent = '  '.repeat(num);
+      const title =
+        chapter.heading === null
+          ? Splitter.removeMdSuffix(fallbackOutFileName)
+          : chapter.heading.headingTitle;
+      this.tocContent += `\n${indent}- [${title}](<./${path.relative(
+        outPath,
+        chapterPath,
+      )}>)`;
+    }
+  }
+
+  writeToc(outPath) {
     if (this.toc) {
       this.stats.newOutFiles += 1;
       const tocPath = path.join(outPath, 'toc.md');
-      fs.writeFileSync(tocPath, toc, { encoding: this.encoding });
+      fs.writeFileSync(tocPath, this.tocContent, { encoding: this.encoding });
       if (this.verbose) {
         console.log(`Write table of contents to ${tocPath}`);
       }
