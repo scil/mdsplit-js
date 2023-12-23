@@ -368,6 +368,10 @@ async function* splitByHeading(rl, maxLevel) {
    * @type {Line}
    */
   let currHeadingLine = null;
+  /**
+   *
+   * @type {Array.<string>} currLines
+   */
   let currLines = [];
   let withinFence = false;
 
@@ -434,6 +438,10 @@ function __getParents(parents, headingLine) {
  - empty heading is valid
  - closing hashes are stripped
  - whitespace around title are stripped
+
+ @property {number} headingLevel
+ @property {string} headingTitle
+ @property {string} fullLine
  */
 class Line {
   constructor(line) {
