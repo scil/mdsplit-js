@@ -71,6 +71,11 @@ async function main() {
     help: 'the body of function with arg chapter to customize filename',
   });
 
+  parser.add_argument('-eq', '--equal-mixed-children', {
+    action: 'store_true',
+    help: 'for a chapter with both text contents and child chapters (set the property hasMixedChildren to true), put both in dir.',
+  });
+
   const args = parser.parse_args();
 
   try {
@@ -82,6 +87,7 @@ async function main() {
       force: args.force,
       verbose: args.verbose,
       customFilename: args.custom_filename,
+      equalMixedChildren: args.equal_mixed_children,
     };
 
     const splitter =

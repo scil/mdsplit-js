@@ -26,6 +26,7 @@ class BaseChapter {
  * @property {Line} heading
  * @property {Array.<BaseChapter>} parent
  * @property {Array.<string>} text
+ * @property {boolean} hasMixedChildren
  */
 class Chapter extends BaseChapter {
   constructor(parents, heading, text) {
@@ -44,6 +45,19 @@ class Chapter extends BaseChapter {
     this.parents = parents;
     this.heading = heading;
     this.text = text;
+    this.hasMixedChildren = false;
+  }
+
+  /**
+   *
+   * @property {Chapter} nextChapter
+   */
+  setHasMixedChildren(nextChapter) {
+    this.hasMixedChildren =
+      this.heading &&
+      nextChapter.heading &&
+      this.heading.headingLevel < nextChapter.heading.headingLevel &&
+      (this.text[1].length > 0 || this.text[2]?.length > 0); // has text contents
   }
 }
 
@@ -55,9 +69,18 @@ class Chapter extends BaseChapter {
  * @property {boolean} verbose
  * @property {Stats} stats
  * @property {Function} customChapterFilename
+ * @property {boolean} equalMixedChildren
  */
 class Splitter {
-  constructor(encoding, level, toc, force, verbose, customFilename) {
+  constructor({
+    encoding,
+    level,
+    toc,
+    force,
+    verbose,
+    customFilename,
+    equalMixedChildren,
+  }) {
     this.encoding = encoding || 'utf8';
     this.level = level;
     this.toc = toc;
@@ -70,6 +93,7 @@ class Splitter {
         : typeof customFilename === 'string'
           ? Function.apply(Function, ['chapter', 'fallback', customFilename])
           : null;
+    this.equalMixedChildren = equalMixedChildren;
   }
 
   async process() {
@@ -136,7 +160,11 @@ class Splitter {
     let toc = '# Table of Contents\n';
     this.stats.inFiles += 1;
 
-    const chapters = await splitByHeading(rl, this.level);
+    const chapters = await splitByHeading(
+      rl,
+      this.level,
+      this.equalMixedChildren,
+    );
 
     for await (const chapter of chapters) {
       this.stats.chapters += 1;
@@ -153,6 +181,9 @@ class Splitter {
         chapter,
         fallbackOutFileName,
       );
+
+      // no writing, just generate the property `filename`
+      if (this.equalMixedChildren && chapter.hasMixedChildren) continue;
 
       const chapterPath = path.join(chapterDir, chapterFilename);
       if (this.verbose) {
@@ -219,16 +250,8 @@ class Splitter {
  * Split content from stdin
  */
 export class StdinSplitter extends Splitter {
-  constructor({
-    encoding,
-    level,
-    toc,
-    outPath,
-    force,
-    verbose,
-    customFilename,
-  }) {
-    super(encoding, level, toc, force, verbose, customFilename);
+  constructor({ outPath, ...options }) {
+    super(options);
     this.outPath = outPath || DIR_SUFFIX;
     if (
       fs.existsSync(this.outPath) &&
@@ -275,11 +298,9 @@ export class StdinSplitter extends Splitter {
  * Split a specific file or all .md files found in a directory (recursively)
  */
 export class PathBasedSplitter extends Splitter {
-  constructor(
-    inPath,
-    { encoding, level, toc, outPath, force, verbose, customFilename },
-  ) {
-    super(encoding, level, toc, force, verbose, customFilename);
+  constructor(inPath, options) {
+    super(options);
+    const { outPath, force } = options;
     this.inPath = inPath;
     if (!fs.existsSync(this.inPath)) {
       throw new MdSplitError(
@@ -362,7 +383,9 @@ export class PathBasedSplitter extends Splitter {
   }
 }
 
-async function* splitByHeading(rl, maxLevel) {
+async function* splitByHeading(rl, maxLevel, equalMixedChildren) {
+  // no differents, but to help understand. one only to check, one to action
+  const checkMixedChildren = equalMixedChildren;
   let currParents = Array.from({ length: 6 }, () => new BaseChapter());
   /**
    * @type {Line}
@@ -374,6 +397,10 @@ async function* splitByHeading(rl, maxLevel) {
    */
   let currLines = [];
   let withinFence = false;
+  /**
+   * @type {Chapter}
+   */
+  let preChapter;
 
   for await (const nextRlLine of rl) {
     const nextLine = new Line(nextRlLine);
@@ -389,7 +416,32 @@ async function* splitByHeading(rl, maxLevel) {
       if (currLines.length > 0) {
         const parents = __getParents(currParents, currHeadingLine);
         const chapter = new Chapter(parents, currHeadingLine, currLines);
-        yield chapter;
+        if (!checkMixedChildren) {
+          yield chapter;
+        } else {
+          if (preChapter) {
+            preChapter.setHasMixedChildren(chapter);
+            if (!equalMixedChildren) yield preChapter;
+            else {
+              // even if preChapter.hasMixedChildren and would not to be saved to file,
+              // preChapter should be still yielded,
+              // as it's needed to generate filename, see `getChapterFilename`
+              yield preChapter;
+              if (preChapter.hasMixedChildren) {
+                const fakeChapter = new Chapter(
+                  parents,
+                  preChapter.heading,
+                  preChapter.text,
+                );
+                fakeChapter.index = 0;
+                chapter.index = 1;
+                yield fakeChapter;
+              }
+            }
+          }
+
+          preChapter = chapter;
+        }
 
         if (currHeadingLine !== null) {
           const currLevel = currHeadingLine.headingLevel;
@@ -408,8 +460,13 @@ async function* splitByHeading(rl, maxLevel) {
   }
 
   const parents = __getParents(currParents, currHeadingLine);
-  //  yields the last chapter
-  yield new Chapter(parents, currHeadingLine, currLines);
+  //  the last chapter
+  var chapter = new Chapter(parents, currHeadingLine, currLines);
+  if (equalMixedChildren && preChapter) {
+    preChapter.setHasMixedChildren(chapter);
+    yield preChapter;
+  }
+  yield chapter;
 }
 
 /**
